@@ -57,6 +57,11 @@ public abstract class SimpleCursorSwipeAdapter extends SimpleCursorAdapter imple
     }
 
     @Override
+    public void closeAllItems() {
+        mItemManger.closeAllItems();
+    }
+
+    @Override
     public <T extends Collection<Long> & Serializable> T getOpenItems() {
         return mItemManger.getOpenItems();
     }

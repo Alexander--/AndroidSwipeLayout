@@ -19,6 +19,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.WeakHashMap;
 
@@ -30,7 +31,7 @@ public abstract class SwipeItemMangerImpl implements SwipeItemMangerInterface {
     private Attributes.Mode mode = Attributes.Mode.Single;
 
     protected HashSet<Long> mOpenPositions = new HashSet<>();
-    protected Set<SwipeLayout> mShownLayouts = Collections.newSetFromMap(new WeakHashMap<SwipeLayout, Boolean>());
+    protected Map<SwipeLayout, Long> mShownLayouts = new WeakHashMap<>();
 
     protected BaseAdapter mBaseAdapter;
     protected RecyclerView.Adapter mRecyclerAdapter;
@@ -85,40 +86,37 @@ public abstract class SwipeItemMangerImpl implements SwipeItemMangerInterface {
 
     @Override
     public void openItem(long id) {
-        if (!mOpenPositions.contains(id))
-            mOpenPositions.add(id);
-
-        if (mBaseAdapter != null) {
-            mBaseAdapter.notifyDataSetChanged();
-        } else if (mRecyclerAdapter != null) {
-            mRecyclerAdapter.notifyDataSetChanged();
+        for (Map.Entry<SwipeLayout, Long> entry:mShownLayouts.entrySet()) {
+            if (entry.getValue().equals(id)) {
+                entry.getKey().open(true);
+                break;
+            }
         }
     }
 
     @Override
     public void closeItem(long id) {
-        mOpenPositions.remove(id);
-
-        if (mBaseAdapter != null) {
-            mBaseAdapter.notifyDataSetChanged();
-        } else if (mRecyclerAdapter != null) {
-            mRecyclerAdapter.notifyDataSetChanged();
+        for (Map.Entry<SwipeLayout, Long> entry:mShownLayouts.entrySet()) {
+            if (entry.getValue().equals(id)) {
+                entry.getKey().close(true);
+                break;
+            }
         }
     }
 
     @Override
     public void closeAllExcept(SwipeLayout layout) {
-        for (SwipeLayout s : mShownLayouts) {
-            if (s != layout)
-                s.close();
+        for (Map.Entry<SwipeLayout, Long> e : mShownLayouts.entrySet()) {
+            SwipeLayout s = e.getKey();
+            if (s != layout) {
+                s.close(true);
+            }
         }
     }
 
     @Override
     public void closeAllItems() {
-        mOpenPositions.clear();
-
-        for (SwipeLayout s : mShownLayouts) {
+        for (SwipeLayout s : mShownLayouts.keySet()) {
             s.close();
         }
     }
@@ -136,7 +134,7 @@ public abstract class SwipeItemMangerImpl implements SwipeItemMangerInterface {
 
     @Override
     public List<SwipeLayout> getOpenLayouts() {
-        return new ArrayList<>(mShownLayouts);
+        return new ArrayList<>(mShownLayouts.keySet());
     }
 
     @Override

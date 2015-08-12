@@ -43,13 +43,14 @@ public class SwipeItemRecyclerMangerImpl extends SwipeItemMangerImpl{
             swipeLayout.addSwipeListener(swipeMemory);
             swipeLayout.addOnLayoutListener(onLayoutListener);
             swipeLayout.setTag(resId, new ValueBox(id, swipeMemory, onLayoutListener));
-            mShownLayouts.add(swipeLayout);
         } else {
             ValueBox valueBox = (ValueBox) swipeLayout.getTag(resId);
             valueBox.swipeMemory.setPosition(id);
             valueBox.onLayoutListener.setPosition(id);
             valueBox.id = id;
         }
+
+        mShownLayouts.put(swipeLayout, id);
     }
 
     @Override

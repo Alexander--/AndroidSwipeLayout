@@ -43,7 +43,7 @@ public class SwipeItemAdapterMangerImpl extends SwipeItemMangerImpl{
         swipeLayout.setTag(resId, new ValueBox(id, swipeMemory, onLayoutListener));
         swipeLayout.addOnLayoutListener(onLayoutListener);
 
-        mShownLayouts.add(swipeLayout);
+        mShownLayouts.put(swipeLayout, id);
     }
 
     @Override
@@ -64,7 +64,8 @@ public class SwipeItemAdapterMangerImpl extends SwipeItemMangerImpl{
         valueBox.onLayoutListener.setPosition(id);
         valueBox.id = id;
 
-        swipeLayout.invalidate();
+        mShownLayouts.put(swipeLayout, id);
+
         if (needLayout) swipeLayout.requestLayout();
     }
 
