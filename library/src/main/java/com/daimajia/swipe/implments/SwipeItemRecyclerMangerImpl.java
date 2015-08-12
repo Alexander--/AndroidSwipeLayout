@@ -29,24 +29,26 @@ public class SwipeItemRecyclerMangerImpl extends SwipeItemMangerImpl{
 
     @Override
     public void bindView(View target, int position) {
+        long id = mAdapter.getItemId(position);
+
         int resId = getSwipeLayoutId(position);
 
-        OnLayoutListener onLayoutListener = new OnLayoutListener(position);
+        OnLayoutListener onLayoutListener = new OnLayoutListener(id);
         SwipeLayout swipeLayout = (SwipeLayout) target.findViewById(resId);
         if (swipeLayout == null)
             throw new IllegalStateException("can not find SwipeLayout in target view");
 
         if (swipeLayout.getTag(resId) == null) {
-            SwipeMemory swipeMemory = new SwipeMemory(position);
+            SwipeMemory swipeMemory = new SwipeMemory(id);
             swipeLayout.addSwipeListener(swipeMemory);
             swipeLayout.addOnLayoutListener(onLayoutListener);
-            swipeLayout.setTag(resId, new ValueBox(position, swipeMemory, onLayoutListener));
+            swipeLayout.setTag(resId, new ValueBox(id, swipeMemory, onLayoutListener));
             mShownLayouts.add(swipeLayout);
         } else {
             ValueBox valueBox = (ValueBox) swipeLayout.getTag(resId);
-            valueBox.swipeMemory.setPosition(position);
-            valueBox.onLayoutListener.setPosition(position);
-            valueBox.position = position;
+            valueBox.swipeMemory.setPosition(id);
+            valueBox.onLayoutListener.setPosition(id);
+            valueBox.id = id;
         }
     }
 

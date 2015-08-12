@@ -9,6 +9,8 @@ import com.daimajia.swipe.interfaces.SwipeAdapterInterface;
 import com.daimajia.swipe.interfaces.SwipeItemMangerInterface;
 import com.daimajia.swipe.util.Attributes;
 
+import java.io.Serializable;
+import java.util.Collection;
 import java.util.List;
 
 public abstract class RecyclerSwipeAdapter<VH extends RecyclerView.ViewHolder> extends RecyclerView.Adapter<VH> implements SwipeItemMangerInterface, SwipeAdapterInterface {
@@ -22,12 +24,12 @@ public abstract class RecyclerSwipeAdapter<VH extends RecyclerView.ViewHolder> e
     public abstract void onBindViewHolder(VH viewHolder, final int position);
 
     @Override
-    public void openItem(int position) {
+    public void openItem(long position) {
         mItemManger.openItem(position);
     }
 
     @Override
-    public void closeItem(int position) {
+    public void closeItem(long position) {
         mItemManger.closeItem(position);
     }
 
@@ -42,7 +44,7 @@ public abstract class RecyclerSwipeAdapter<VH extends RecyclerView.ViewHolder> e
     }
 
     @Override
-    public List<Integer> getOpenItems() {
+    public <T extends Collection<Long> & Serializable> T getOpenItems() {
         return mItemManger.getOpenItems();
     }
 
@@ -57,7 +59,7 @@ public abstract class RecyclerSwipeAdapter<VH extends RecyclerView.ViewHolder> e
     }
 
     @Override
-    public boolean isOpen(int position) {
+    public boolean isOpen(long position) {
         return mItemManger.isOpen(position);
     }
 

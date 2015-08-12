@@ -12,7 +12,10 @@ import com.daimajia.swipe.interfaces.SwipeAdapterInterface;
 import com.daimajia.swipe.interfaces.SwipeItemMangerInterface;
 import com.daimajia.swipe.util.Attributes;
 
+import java.io.Serializable;
+import java.util.Collection;
 import java.util.List;
+import java.util.Set;
 
 public abstract class ArraySwipeAdapter<T> extends ArrayAdapter implements SwipeItemMangerInterface,SwipeAdapterInterface {
 
@@ -55,12 +58,12 @@ public abstract class ArraySwipeAdapter<T> extends ArrayAdapter implements Swipe
     }
 
     @Override
-    public void openItem(int position) {
+    public void openItem(long position) {
         mItemManger.openItem(position);
     }
 
     @Override
-    public void closeItem(int position) {
+    public void closeItem(long position) {
         mItemManger.closeItem(position);
     }
 
@@ -75,7 +78,7 @@ public abstract class ArraySwipeAdapter<T> extends ArrayAdapter implements Swipe
     }
 
     @Override
-    public List<Integer> getOpenItems() {
+    public <T extends Collection<Long> & Serializable> T getOpenItems() {
         return mItemManger.getOpenItems();
     }
 
@@ -90,7 +93,7 @@ public abstract class ArraySwipeAdapter<T> extends ArrayAdapter implements Swipe
     }
 
     @Override
-    public boolean isOpen(int position) {
+    public boolean isOpen(long position) {
         return mItemManger.isOpen(position);
     }
 

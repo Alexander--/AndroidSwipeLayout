@@ -13,6 +13,8 @@ import com.daimajia.swipe.interfaces.SwipeAdapterInterface;
 import com.daimajia.swipe.interfaces.SwipeItemMangerInterface;
 import com.daimajia.swipe.util.Attributes;
 
+import java.io.Serializable;
+import java.util.Collection;
 import java.util.List;
 
 public abstract class SimpleCursorSwipeAdapter extends SimpleCursorAdapter implements SwipeItemMangerInterface, SwipeAdapterInterface {
@@ -40,12 +42,12 @@ public abstract class SimpleCursorSwipeAdapter extends SimpleCursorAdapter imple
     }
 
     @Override
-    public void openItem(int position) {
+    public void openItem(long position) {
         mItemManger.openItem(position);
     }
 
     @Override
-    public void closeItem(int position) {
+    public void closeItem(long position) {
         mItemManger.closeItem(position);
     }
 
@@ -55,7 +57,7 @@ public abstract class SimpleCursorSwipeAdapter extends SimpleCursorAdapter imple
     }
 
     @Override
-    public List<Integer> getOpenItems() {
+    public <T extends Collection<Long> & Serializable> T getOpenItems() {
         return mItemManger.getOpenItems();
     }
 
@@ -70,7 +72,7 @@ public abstract class SimpleCursorSwipeAdapter extends SimpleCursorAdapter imple
     }
 
     @Override
-    public boolean isOpen(int position) {
+    public boolean isOpen(long position) {
         return mItemManger.isOpen(position);
     }
 

@@ -29,23 +29,27 @@ public class SwipeItemAdapterMangerImpl extends SwipeItemMangerImpl{
 
     @Override
     public void initialize(View target, int position) {
+        long id = mAdapter.getItemId(position);
+
         int resId = getSwipeLayoutId(position);
 
-        OnLayoutListener onLayoutListener = new OnLayoutListener(position);
+        OnLayoutListener onLayoutListener = new OnLayoutListener(id);
         SwipeLayout swipeLayout = (SwipeLayout) target.findViewById(resId);
         if (swipeLayout == null)
             throw new IllegalStateException("can not find SwipeLayout in target view");
 
-        SwipeMemory swipeMemory = new SwipeMemory(position);
+        SwipeMemory swipeMemory = new SwipeMemory(id);
         swipeLayout.addSwipeListener(swipeMemory);
+        swipeLayout.setTag(resId, new ValueBox(id, swipeMemory, onLayoutListener));
         swipeLayout.addOnLayoutListener(onLayoutListener);
-        swipeLayout.setTag(resId, new ValueBox(position, swipeMemory, onLayoutListener));
 
         mShownLayouts.add(swipeLayout);
     }
 
     @Override
     public void updateConvertView(View target, int position) {
+        long id = mAdapter.getItemId(position);
+
         int resId = getSwipeLayoutId(position);
 
         SwipeLayout swipeLayout = (SwipeLayout) target.findViewById(resId);
@@ -53,9 +57,15 @@ public class SwipeItemAdapterMangerImpl extends SwipeItemMangerImpl{
             throw new IllegalStateException("can not find SwipeLayout in target view");
 
         ValueBox valueBox = (ValueBox) swipeLayout.getTag(resId);
-        valueBox.swipeMemory.setPosition(position);
-        valueBox.onLayoutListener.setPosition(position);
-        valueBox.position = position;
+
+        boolean needLayout = target != swipeLayout && isOpen(valueBox.id) != isOpen(id);
+
+        valueBox.swipeMemory.setPosition(id);
+        valueBox.onLayoutListener.setPosition(id);
+        valueBox.id = id;
+
+        swipeLayout.invalidate();
+        if (needLayout) swipeLayout.requestLayout();
     }
 
     @Override

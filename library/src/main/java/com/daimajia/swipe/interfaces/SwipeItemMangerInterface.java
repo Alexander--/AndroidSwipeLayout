@@ -1,28 +1,33 @@
 package com.daimajia.swipe.interfaces;
 
 import com.daimajia.swipe.SwipeLayout;
-import com.daimajia.swipe.implments.SwipeItemMangerImpl;
 import com.daimajia.swipe.util.Attributes;
 
+import java.io.Serializable;
+import java.util.Collection;
 import java.util.List;
 
 public interface SwipeItemMangerInterface {
 
-    public void openItem(int position);
+    public void openItem(long id);
 
-    public void closeItem(int position);
+    public void closeItem(long id);
 
     public void closeAllExcept(SwipeLayout layout);
     
     public void closeAllItems();
 
-    public List<Integer> getOpenItems();
+    /**
+     * Returns an actual collection instance, used for holding open items.
+     * (useful for saving/restoring ListAdapter state)
+     */
+    public <T extends Collection<Long> & Serializable> T getOpenItems();
 
     public List<SwipeLayout> getOpenLayouts();
 
     public void removeShownLayouts(SwipeLayout layout);
 
-    public boolean isOpen(int position);
+    public boolean isOpen(long id);
 
     public Attributes.Mode getMode();
 
