@@ -3,7 +3,10 @@ package com.daimajia.swipe;
 import android.content.Context;
 import android.content.res.TypedArray;
 import android.graphics.Rect;
+import android.os.Build;
+import android.os.Bundle;
 import android.os.Parcelable;
+import android.support.v4.os.ParcelableCompatCreatorCallbacks;
 import android.support.v4.view.ViewCompat;
 import android.support.v4.widget.ViewDragHelper;
 import android.util.AttributeSet;
@@ -18,7 +21,9 @@ import android.widget.AdapterView;
 import android.widget.BaseAdapter;
 import android.widget.FrameLayout;
 import android.widget.ListAdapter;
+import android.widget.ScrollView;
 
+import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -39,6 +44,8 @@ public class SwipeLayout extends FrameLayout {
     private List<SwipeDenier> mSwipeDeniers = new ArrayList<SwipeDenier>();
     private Map<View, ArrayList<OnRevealListener>> mRevealListeners = new HashMap<View, ArrayList<OnRevealListener>>();
     private Map<View, Boolean> mShowEntirely = new HashMap<View, Boolean>();
+
+    private Status lastRequestedStatus;
 
     private DoubleClickListener mDoubleClickListener;
 
@@ -170,6 +177,27 @@ public class SwipeLayout extends FrameLayout {
             mRevealListeners.remove(child);
             mShowEntirely.remove(child);
         }
+    }
+
+    @Override
+    protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
+
+        ViewParent t = getParent();
+        while(t != null){
+            if(t instanceof AdapterView){
+                parentAdapterView = (AdapterView) t;
+                break;
+            }
+            t = t.getParent();
+        }
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        parentAdapterView = null;
+
+        super.onDetachedFromWindow();
     }
 
     private ViewDragHelper.Callback mDragHelperCallback = new ViewDragHelper.Callback() {
@@ -668,6 +696,48 @@ public class SwipeLayout extends FrameLayout {
             mDragDistance = getBottomView().getMeasuredHeight()-dp2px(mVerticalSwipeOffset);
     }
 
+    private static final String KEY_STATUS = "com.daijima.swipe.Status";
+    private static final String KEY_SUPER_STATE = "com.daijima.swipe.SuperState";
+
+    private final Bundle bundle = new Bundle();
+
+    @Override
+    protected Parcelable onSaveInstanceState() {
+        final Parcelable superState = super.onSaveInstanceState();
+
+        if (definiteStatus != null) {
+            bundle.putSerializable(KEY_STATUS, definiteStatus);
+        }
+
+        if (superState != null) {
+            bundle.putParcelable(KEY_SUPER_STATE, superState);
+        }
+
+        return bundle;
+    }
+
+    @Override
+    protected void onRestoreInstanceState(Parcelable state) {
+        if (!(state instanceof Bundle)) return;
+
+        Parcelable superState = null;
+
+        for (String key:bundle.keySet()) {
+            switch (key) {
+                case KEY_STATUS:
+                    definiteStatus = (Status) bundle.get(key);
+                    break;
+                case KEY_SUPER_STATE:
+                    superState = (Parcelable) bundle.get(key);
+                    break;
+                default:
+                    throw new IllegalStateException("Inappropriate state received: id collisions in view hierarchy?");
+            }
+        }
+
+        super.onRestoreInstanceState(superState);
+    }
+
     private boolean mTouchConsumedByChild = false;
 
     @Override
@@ -894,15 +964,10 @@ public class SwipeLayout extends FrameLayout {
         return getAdapterView() != null;
     }
 
+    private AdapterView parentAdapterView;
+
     private AdapterView getAdapterView(){
-        ViewParent t = getParent();
-        while(t != null){
-            if(t instanceof AdapterView){
-                return (AdapterView)t;
-            }
-            t = t.getParent();
-        }
-        return null;
+        return parentAdapterView;
     }
 
     private void performAdapterViewItemClick(MotionEvent e){
@@ -1138,7 +1203,11 @@ public class SwipeLayout extends FrameLayout {
         open(smooth, true);
     }
 
+    private Status definiteStatus;
+
     public void open(boolean smooth, boolean notify){
+        definiteStatus = Status.Open;
+
         ViewGroup surface = getSurfaceView(), bottom = getBottomView();
         int dx,dy;
         Rect rect = computeSurfaceLayoutArea(true);
@@ -1180,6 +1249,8 @@ public class SwipeLayout extends FrameLayout {
      * @param notify if notify all the listeners.
      */
     public void close(boolean smooth, boolean notify){
+        definiteStatus = Status.Close;
+
         ViewGroup surface = getSurfaceView();
         int dx, dy;
         if(smooth)
