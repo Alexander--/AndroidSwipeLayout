@@ -1,10 +1,22 @@
 package com.daimajia.swipe;
 
+import android.bluetooth.BluetoothSocket;
 import android.content.Context;
+import android.content.pm.PackageInstaller;
+import android.content.res.AssetFileDescriptor;
 import android.content.res.TypedArray;
 import android.graphics.Rect;
+import android.hardware.usb.UsbDeviceConnection;
+import android.media.MediaMuxer;
+import android.media.MediaPlayer;
+import android.media.MediaRecorder;
+import android.net.LocalServerSocket;
+import android.net.LocalSocket;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.MemoryFile;
+import android.os.Parcel;
+import android.os.ParcelFileDescriptor;
 import android.os.Parcelable;
 import android.support.v4.os.ParcelableCompatCreatorCallbacks;
 import android.support.v4.view.ViewCompat;
@@ -12,10 +24,14 @@ import android.support.v4.widget.ViewDragHelper;
 import android.util.AttributeSet;
 import android.util.SparseArray;
 import android.view.GestureDetector;
+import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewConfiguration;
 import android.view.ViewGroup;
 import android.view.ViewParent;
+import android.view.accessibility.AccessibilityEvent;
+import android.widget.AbsListView;
 import android.widget.Adapter;
 import android.widget.AdapterView;
 import android.widget.BaseAdapter;
@@ -23,7 +39,9 @@ import android.widget.FrameLayout;
 import android.widget.ListAdapter;
 import android.widget.ScrollView;
 
+import java.io.FileDescriptor;
 import java.lang.ref.WeakReference;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -45,11 +63,13 @@ public class SwipeLayout extends FrameLayout {
     private Map<View, ArrayList<OnRevealListener>> mRevealListeners = new HashMap<View, ArrayList<OnRevealListener>>();
     private Map<View, Boolean> mShowEntirely = new HashMap<View, Boolean>();
 
-    private Status lastRequestedStatus;
+    private boolean mIsBeingDragged;
 
     private DoubleClickListener mDoubleClickListener;
 
     private boolean mSwipeEnabled = true;
+
+    private int mTouchSlop;
 
     public static enum DragEdge {
         Left,
@@ -74,6 +94,7 @@ public class SwipeLayout extends FrameLayout {
     public SwipeLayout(Context context, AttributeSet attrs, int defStyle) {
         super(context, attrs, defStyle);
         mDragHelper = ViewDragHelper.create(this, mDragHelperCallback);
+        mTouchSlop = ViewConfiguration.get(context).getScaledTouchSlop();
 
         TypedArray a = context.obtainStyledAttributes(attrs, R.styleable.SwipeLayout);
         int ordinal = a.getInt(R.styleable.SwipeLayout_drag_edge, DragEdge.Right.ordinal());
@@ -82,6 +103,7 @@ public class SwipeLayout extends FrameLayout {
         mDragEdge = DragEdge.values()[ordinal];
         ordinal = a.getInt(R.styleable.SwipeLayout_show_mode, ShowMode.PullOut.ordinal());
         mShowMode = ShowMode.values()[ordinal];
+        a.recycle();
     }
 
     public interface SwipeListener{
@@ -298,9 +320,15 @@ public class SwipeLayout extends FrameLayout {
             return top;
         }
 
+        boolean isCloseBeforeDrag = true;
+
         @Override
         public boolean tryCaptureView(View child, int pointerId) {
-            return child == getSurfaceView() || child == getBottomView();
+            boolean result = child == getSurfaceView() || child == getBottomView();
+            if(result) {
+                isCloseBeforeDrag = getOpenStatus() == Status.Close;
+            }
+            return result;
         }
 
         @Override
@@ -319,7 +347,7 @@ public class SwipeLayout extends FrameLayout {
             for(SwipeListener l : mSwipeListeners)
                 l.onHandRelease(SwipeLayout.this, xvel, yvel);
             if(releasedChild == getSurfaceView()){
-                processSurfaceRelease(xvel, yvel);
+                processSurfaceRelease(xvel, yvel, isCloseBeforeDrag);
             }else if(releasedChild == getBottomView()){
                 if(getShowMode() == ShowMode.PullOut){
                     processBottomPullOutRelease(xvel, yvel);
@@ -738,8 +766,6 @@ public class SwipeLayout extends FrameLayout {
         super.onRestoreInstanceState(superState);
     }
 
-    private boolean mTouchConsumedByChild = false;
-
     @Override
     public boolean onInterceptTouchEvent(MotionEvent ev) {
 
@@ -747,86 +773,59 @@ public class SwipeLayout extends FrameLayout {
             return true;
         }
 
-        if(!isSwipeEnabled()){
-            return false;
-        }
+        if(!isSwipeEnabled())
+            return super.onInterceptTouchEvent(ev);
 
         for (SwipeDenier denier : mSwipeDeniers) {
             if (denier != null && denier.shouldDenySwipe(ev)) {
                 return false;
             }
         }
-        //
-        //if a child wants to handle the touch event,
-        //then let it do it.
-        //
-        int action = ev.getActionMasked();
-        switch (action){
+
+        switch (ev.getAction()) {
             case MotionEvent.ACTION_DOWN:
-                Status status = getOpenStatus();
-                if(status == Status.Close){
-                    mTouchConsumedByChild = childNeedHandleTouchEvent(getSurfaceView(), ev) != null;
-                }else if(status == Status.Open){
-                    mTouchConsumedByChild = childNeedHandleTouchEvent(getBottomView(), ev) != null;
+                mDragHelper.processTouchEvent(ev);
+
+                mIsBeingDragged = false;
+                sX = ev.getRawX();
+                sY = ev.getRawY();
+
+                if (getOpenStatus() == Status.Middle) {
+                    mIsBeingDragged = true;
+                }
+                break;
+            case MotionEvent.ACTION_MOVE:
+                boolean beforeCheck = mIsBeingDragged;
+
+                checkCanDrag(ev);
+
+                if (mIsBeingDragged) {
+                    ViewParent parent = getParent();
+                    if (parent!=null) {
+                        parent.requestDisallowInterceptTouchEvent(true);
+                    }
+                }
+
+                if (!beforeCheck && mIsBeingDragged) {
+                    // let children has one chance to catch the touch, and request the swipe not intercept
+                    // useful when swipeLayout wrap a swipeLayout or other gestural layout
+                    return false;
                 }
                 break;
             case MotionEvent.ACTION_UP:
             case MotionEvent.ACTION_CANCEL:
-                mTouchConsumedByChild = false;
+                mIsBeingDragged = false;
+                mDragHelper.processTouchEvent(ev);
+                break;
+            default:
+                mDragHelper.processTouchEvent(ev);
         }
 
-        if(mTouchConsumedByChild)   return false;
-        return mDragHelper.shouldInterceptTouchEvent(ev);
-    }
-
-    /**
-     * if the ViewGroup children want to handle this event.
-     * @param v
-     * @param event
-     * @return
-     */
-    private View childNeedHandleTouchEvent(ViewGroup v, MotionEvent event){
-        if(v == null) return null;
-        if(v.onTouchEvent(event))
-            return v;
-
-        int childCount = v.getChildCount();
-        for(int i = childCount - 1; i >= 0; i--){
-            View child = v.getChildAt(i);
-            if(child instanceof ViewGroup){
-                View grandChild = childNeedHandleTouchEvent((ViewGroup) child, event);
-                if(grandChild != null)
-                    return grandChild;
-            }else{
-                if(childNeedHandleTouchEvent(v.getChildAt(i), event))
-                    return v.getChildAt(i);
-            }
-        }
-        return null;
-    }
-
-    /**
-     * if the view (v) wants to handle this event.
-     * @param v
-     * @param event
-     * @return
-     */
-    private boolean childNeedHandleTouchEvent(View v, MotionEvent event){
-        if(v == null)   return false;
-
-        int[] loc = new int[2];
-        v.getLocationOnScreen(loc);
-        int left = loc[0], top = loc[1];
-
-        if(event.getRawX() > left && event.getRawX() < left + v.getWidth()
-                && event.getRawY() > top && event.getRawY() < top + v.getHeight()){
-            return v.onTouchEvent(event);
-        }
-
-        return false;
+        return mIsBeingDragged;
     }
 
     private float sX = -1 , sY = -1;
+
     @Override
     public boolean onTouchEvent(MotionEvent event) {
         if(!isEnabledInAdapterView() || !isEnabled())
@@ -839,95 +838,83 @@ public class SwipeLayout extends FrameLayout {
         ViewParent parent = getParent();
 
         gestureDetector.onTouchEvent(event);
-        Status status = getOpenStatus();
-        ViewGroup touching = null;
-        if(status == Status.Close){
-            touching = getSurfaceView();
-        }else if(status == Status.Open){
-            touching = getBottomView();
-        }
 
-        switch (action){
+        switch (action) {
             case MotionEvent.ACTION_DOWN:
                 mDragHelper.processTouchEvent(event);
-                parent.requestDisallowInterceptTouchEvent(true);
 
                 sX = event.getRawX();
                 sY = event.getRawY();
 
-                if(touching != null)
-                    touching.setPressed(true);
-                return true;
-            case MotionEvent.ACTION_MOVE:{
-                float distanceX = event.getRawX() - sX;
-                float distanceY = event.getRawY() - sY;
-                float angle = Math.abs(distanceY / distanceX);
-                angle = (float)Math.toDegrees(Math.atan(angle));
+            case MotionEvent.ACTION_MOVE:
+                // the drag state and the direction are already judged at onInterceptTouchEvent
+                checkCanDrag(event);
+                if (mIsBeingDragged) {
+                    getParent().requestDisallowInterceptTouchEvent(true);
 
-                boolean doNothing = false;
-                if(mDragEdge == DragEdge.Right){
-                    boolean suitable = (status == Status.Open && distanceX > 0) || (status == Status.Close && distanceX < 0);
-                    suitable = suitable || (status == Status.Middle);
-
-                    if(angle > 30 || !suitable){
-                        doNothing = true;
-                    }
-                }
-
-                if(mDragEdge == DragEdge.Left){
-                    boolean suitable = (status == Status.Open && distanceX < 0 ) || (status == Status.Close && distanceX > 0);
-                    suitable = suitable || status == Status.Middle;
-
-                    if(angle > 30 || ! suitable){
-                        doNothing = true;
-                    }
-                }
-
-                if(mDragEdge == DragEdge.Top){
-                    boolean suitable = (status == Status.Open && distanceY < 0 ) || (status == Status.Close && distanceY > 0);
-                    suitable = suitable || status == Status.Middle;
-
-                    if(angle < 60 || ! suitable){
-                        doNothing = true;
-                    }
-                }
-
-                if(mDragEdge == DragEdge.Bottom){
-                    boolean suitable = (status == Status.Open && distanceY > 0 ) || (status == Status.Close && distanceY < 0);
-                    suitable = suitable || status == Status.Middle;
-
-                    if(angle < 60 || ! suitable){
-                        doNothing = true;
-                    }
-                }
-
-                if(doNothing){
-                    parent.requestDisallowInterceptTouchEvent(false);
-                    return false;
-                }else{
-                    if(touching != null){
-                        touching.setPressed(false);
-                    }
-                    parent.requestDisallowInterceptTouchEvent(true);
                     mDragHelper.processTouchEvent(event);
                 }
                 break;
-            }
             case MotionEvent.ACTION_UP:
             case MotionEvent.ACTION_CANCEL:
-            {
-                sX = -1;
-                sY = -1;
-                if(touching != null){
-                    touching.setPressed(false);
-                }
-            }
+                mIsBeingDragged = false;
+                mDragHelper.processTouchEvent(event);
+                break;
             default:
-                parent.requestDisallowInterceptTouchEvent(true);
                 mDragHelper.processTouchEvent(event);
         }
 
-        return true;
+        return super.onTouchEvent(event) || mIsBeingDragged || action == MotionEvent.ACTION_DOWN;
+    }
+
+    private void checkCanDrag(MotionEvent event) {
+        float distanceX = event.getRawX() - sX;
+        float distanceY = event.getRawY() - sY;
+
+        float angle = Math.abs(distanceY / distanceX);
+
+        angle = (float) Math.toDegrees(Math.atan(angle));
+
+        boolean doNothing = false;
+
+        Status status = getOpenStatus();
+
+        boolean suitable;
+        switch (mDragEdge) {
+            case Right:
+                suitable = (status == Status.Open && distanceX > mTouchSlop) || (status == Status.Close && distanceX < -mTouchSlop);
+                suitable = suitable || (status == Status.Middle);
+
+                if(angle > 30 || !suitable) {
+                    doNothing = true;
+                }
+                break;
+            case Left:
+                suitable = (status == Status.Open && distanceX < -mTouchSlop) || (status == Status.Close && distanceX > mTouchSlop);
+                suitable = suitable || status == Status.Middle;
+
+                if(angle > 30 || ! suitable) {
+                    doNothing = true;
+                }
+                break;
+            case Top:
+                suitable = (status == Status.Open && distanceY < -mTouchSlop) || (status == Status.Close && distanceY > mTouchSlop);
+                suitable = suitable || status == Status.Middle;
+
+                if(angle < 60 || ! suitable) {
+                    doNothing = true;
+                }
+                break;
+            case Bottom:
+                suitable = (status == Status.Open && distanceY > mTouchSlop) || (status == Status.Close && distanceY < -mTouchSlop);
+                suitable = suitable || status == Status.Middle;
+
+                if(angle < 60 || ! suitable) {
+                    doNothing = true;
+                }
+        }
+
+        mIsBeingDragged = !doNothing;
     }
 
     /**
@@ -970,61 +957,54 @@ public class SwipeLayout extends FrameLayout {
         return parentAdapterView;
     }
 
-    private void performAdapterViewItemClick(MotionEvent e){
-        ViewParent t = getParent();
-        while(t != null) {
-            if(t instanceof AdapterView){
-                AdapterView view = (AdapterView)t;
-                int p = view.getPositionForView(SwipeLayout.this);
-                if( p != AdapterView.INVALID_POSITION &&
-                        view.performItemClick(view.getChildAt(p-view.getFirstVisiblePosition()), p, view.getAdapter().getItemId(p)))
-                    return;
-            }else{
-                if(t instanceof View && ((View) t).performClick())
-                    return;
+    private void performAdapterViewItemClick() {
+        int p = parentAdapterView.getPositionForView(SwipeLayout.this);
+
+        if (p != AdapterView.INVALID_POSITION) {
+            long itemId = parentAdapterView.getAdapter().getItemId(p);
+
+            final View child = parentAdapterView.getChildAt(p - parentAdapterView.getFirstVisiblePosition());
+
+            parentAdapterView.performItemClick(child, p, itemId);
+        }
+    }
+
+    private void performAdapterViewItemLongClick() {
+        int p = parentAdapterView.getPositionForView(SwipeLayout.this);
+
+        if (p != AdapterView.INVALID_POSITION) {
+            long itemId = parentAdapterView.getAdapter().getItemId(p);
+
+            final View child = parentAdapterView.getChildAt(p - parentAdapterView.getFirstVisiblePosition());
+
+            boolean handled;
+            try {
+                Method m = AbsListView.class.getDeclaredMethod("performLongPress", View.class, int.class, long.class);
+
+                m.setAccessible(true);
+
+                handled = (boolean) m.invoke(parentAdapterView, SwipeLayout.this, p, itemId);
+            } catch (Exception e) {
+                if (parentAdapterView.getOnItemLongClickListener() != null) {
+
+                    handled = parentAdapterView.getOnItemLongClickListener().onItemLongClick(parentAdapterView, child, p, itemId);
+
+                    if (handled) {
+                        parentAdapterView.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+
+                        child.sendAccessibilityEvent(AccessibilityEvent.TYPE_VIEW_LONG_CLICKED);
+                    }
+                }
             }
-            t = t.getParent();
         }
     }
 
     private GestureDetector gestureDetector = new GestureDetector(getContext(), new SwipeDetector());
-    class SwipeDetector extends GestureDetector.SimpleOnGestureListener{
-        @Override
-        public boolean onDown(MotionEvent e) {
-            return true;
-        }
-
-        /**
-         * Simulate the touch event lifecycle. If you use SwipeLayout in {@link android.widget.AdapterView}
-         * ({@link android.widget.ListView}, {@link android.widget.GridView} etc.) It will manually call
-         * {@link android.widget.AdapterView}.performItemClick, performItemLongClick.
-         * @param e
-         * @return
-         */
-        @Override
-        public boolean onSingleTapUp(MotionEvent e) {
-            if(mDoubleClickListener == null){
-                performAdapterViewItemClick(e);
-            }
-            return true;
-        }
-
-        @Override
-        public boolean onSingleTapConfirmed(MotionEvent e) {
-            if(mDoubleClickListener != null){
-                performAdapterViewItemClick(e);
-            }
-            return true;
-        }
-
-        @Override
-        public void onLongPress(MotionEvent e) {
-            performLongClick();
-        }
-
+    
+    class SwipeDetector extends GestureDetector.SimpleOnGestureListener {
         @Override
         public boolean onDoubleTap(MotionEvent e) {
-            if(mDoubleClickListener != null){
+            if (mDoubleClickListener != null) {
                 View target;
                 ViewGroup bottom = getBottomView();
                 ViewGroup surface = getSurfaceView();
@@ -1038,6 +1018,16 @@ public class SwipeLayout extends FrameLayout {
             }
             return true;
         }
+
+        /*
+        @Override
+        public boolean onSingleTapConfirmed(MotionEvent e) {
+            if (getAdapterView() != null) {
+                performAdapterViewItemClick();
+                return true;
+            }
+            return false;
+        }*/
     }
 
     public void setDragEdge(DragEdge dragEdge){
@@ -1112,29 +1102,63 @@ public class SwipeLayout extends FrameLayout {
      * Process the surface release event.
      * @param xvel
      * @param yvel
+     * @param isCloseBeforeDragged
      */
-    private void processSurfaceRelease(float xvel, float yvel){
+    private void processSurfaceRelease(float xvel, float yvel, boolean isCloseBeforeDragged) {
+        float minVelocity = mDragHelper.getMinVelocity();
+        View surfaceView = getSurfaceView();
+
+        if (surfaceView == null) return;
+
+        float willOpenPercent = (isCloseBeforeDragged ? .3f : .7f);
+
         if(xvel == 0 && getOpenStatus() == Status.Middle)
             close();
 
-        if(mDragEdge == DragEdge.Left || mDragEdge == DragEdge.Right){
-            if(xvel > 0){
-                if(mDragEdge == DragEdge.Left)  open();
-                else close();
-            }
-            if(xvel < 0){
-                if(mDragEdge == DragEdge.Left) close();
-                else open();
-            }
-        }else{
-            if(yvel > 0){
-                if(mDragEdge == DragEdge.Top) open();
-                else close();
-            }
-            if(yvel < 0){
-                if(mDragEdge == DragEdge.Top) close();
-                else open();
-            }
+        switch (mDragEdge) {
+            case Left:
+                if (xvel > minVelocity)
+                    open();
+                else if(xvel < -minVelocity)
+                    close();
+                else {
+                    float openPercent = 1f * getSurfaceView().getLeft() / mDragDistance;
+
+                    if (openPercent > willOpenPercent) open(); else close();
+                }
+                break;
+            case Right:
+                if (xvel > minVelocity)
+                    close();
+                else if(xvel < -minVelocity)
+                    open();
+                else {
+                    float openPercent = 1f * (-getSurfaceView().getLeft()) / mDragDistance;
+
+                    if (openPercent > willOpenPercent) open(); else close();
+                }
+                break;
+            case Top:
+                if (yvel > minVelocity)
+                    open();
+                else if(yvel < -minVelocity)
+                    close();
+                else {
+                    float openPercent = 1f * getSurfaceView().getTop() / mDragDistance;
+
+                    if (openPercent > willOpenPercent) open(); else close();
+                }
+                break;
+            case Bottom:
+                if (yvel > minVelocity)
+                    close();
+                else if(yvel < -minVelocity)
+                    open();
+                else {
+                    float openPercent = 1f * (-getSurfaceView().getTop()) / mDragDistance;
+
+                    if (openPercent > willOpenPercent) open(); else close();
+                }
         }
     }
 
@@ -1205,7 +1229,7 @@ public class SwipeLayout extends FrameLayout {
 
     private Status definiteStatus;
 
-    public void open(boolean smooth, boolean notify){
+    public void open(boolean smooth, boolean notify) {
         definiteStatus = Status.Open;
 
         ViewGroup surface = getSurfaceView(), bottom = getBottomView();
